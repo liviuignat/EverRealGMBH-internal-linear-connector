@@ -1,6 +1,7 @@
 import { ReleaseChangeContext } from '../types/linear-webhook';
 import { linearApi } from '../api/linear-api';
 import { sliteApi } from '../api/slite-api';
+import { createLogger } from '../logger';
 
 // Story label parent ID is defined in issue-processor.ts
 
@@ -8,19 +9,26 @@ export async function processStatusReleaseChange(
   context: ReleaseChangeContext
 ) {
   const { labelName, labelId, previousState, currentState } = context;
+  const log = createLogger('release-processor', { labelName, labelId });
 
-  console.log('Processing status release change:', {
-    labelName,
-    labelId,
-    previousState: previousState?.name,
-    currentState: currentState?.name,
-  });
+  log.info(
+    {
+      labelName,
+      labelId,
+      previousState: previousState?.name,
+      currentState: currentState?.name,
+    },
+    'Processing status release change'
+  );
 
   try {
     // Fetch all tickets matching the label ID (same label as the changed ticket)
     const allTickets = await linearApi.getIssuesByLabel(labelId);
 
-    console.log(`Found ${allTickets.length} tickets with label "${labelName}"`);
+    log.info(
+      { ticketCount: allTickets.length },
+      `Found ${allTickets.length} tickets with label "${labelName}"`
+    );
 
     // Format tickets for the release document
     const ticketList = allTickets.map((ticket) => ({
@@ -42,17 +50,28 @@ export async function processStatusReleaseChange(
     const existingDocument = await sliteApi.getDocumentByTitle(labelName);
 
     if (existingDocument) {
-      console.log(`Found existing document for "${labelName}", updating...`, {
-        ...existingDocument,
-      });
+      log.info(
+        {
+          documentId: existingDocument.id,
+          documentStatus: existingDocument.release_status,
+          documentReleaseDate: existingDocument.release_at,
+        },
+        `Found existing document for "${labelName}", updating...`
+      );
 
       // Parse existing metadata
-      const existingStatus = existingDocument.status || 'not_released';
+      const existingStatus = existingDocument.release_status || 'not_released';
       const existingReleaseDate =
         existingDocument.release_at || releaseDateString;
 
       if (existingStatus !== 'not_released') {
-        console.log(`Existing status is not "not_released", skipping update`);
+        log.info(
+          {
+            existingStatus,
+            documentId: existingDocument.id,
+          },
+          `Existing status is not "not_released", skipping update`
+        );
         return {
           success: true,
           action: 'skipped',
@@ -80,7 +99,14 @@ export async function processStatusReleaseChange(
       );
 
       if (result) {
-        console.log(`Successfully updated release document for "${labelName}"`);
+        log.info(
+          {
+            documentId: result.id,
+            ticketCount: ticketList.length,
+            releaseDate: finalReleaseDate,
+          },
+          `Successfully updated release document for "${labelName}"`
+        );
         return {
           success: true,
           action: 'updated',
@@ -90,14 +116,18 @@ export async function processStatusReleaseChange(
           releaseDate: finalReleaseDate,
         };
       } else {
-        console.error(`Failed to update release document for "${labelName}"`);
+        log.error(
+          { labelName },
+          `Failed to update release document for "${labelName}"`
+        );
         return {
           success: false,
           error: 'Failed to update document in Slite',
         };
       }
     } else {
-      console.log(
+      log.info(
+        { labelName },
         `No existing document found for "${labelName}", creating new one...`
       );
 
@@ -112,7 +142,14 @@ export async function processStatusReleaseChange(
       const result = await sliteApi.createDocument(labelName, newContent);
 
       if (result) {
-        console.log(`Successfully created release document for "${labelName}"`);
+        log.info(
+          {
+            documentId: result.id,
+            ticketCount: ticketList.length,
+            releaseDate: releaseDateString,
+          },
+          `Successfully created release document for "${labelName}"`
+        );
         return {
           success: true,
           action: 'created',
@@ -122,7 +159,10 @@ export async function processStatusReleaseChange(
           releaseDate: releaseDateString,
         };
       } else {
-        console.error(`Failed to create release document for "${labelName}"`);
+        log.error(
+          { labelName },
+          `Failed to create release document for "${labelName}"`
+        );
         return {
           success: false,
           error: 'Failed to create document in Slite',
@@ -130,7 +170,15 @@ export async function processStatusReleaseChange(
       }
     }
   } catch (error) {
-    console.error('Error in processStatusReleaseChange:', error);
+    log.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        labelName,
+        labelId,
+      },
+      'Error in processStatusReleaseChange'
+    );
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

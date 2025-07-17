@@ -6,6 +6,7 @@ import {
 import { processIssueWebhook } from '@/lib/webhook-processors/issue-processor';
 import { processCommentWebhook } from '@/lib/webhook-processors/comment-processor';
 import { processProjectWebhook } from '@/lib/webhook-processors/project-processor';
+import { createWebhookLogger } from '@/lib/logger';
 
 // Webhook signature verification
 async function verifyLinearWebhook(
@@ -40,7 +41,11 @@ async function verifyLinearWebhook(
     const receivedSignature = signature.replace('sha256=', '');
     return expectedHex === receivedSignature;
   } catch (error) {
-    console.error('Error verifying webhook signature:', error);
+    const log = createWebhookLogger('signature-verification');
+    log.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      'Error verifying webhook signature'
+    );
     return false;
   }
 }
@@ -48,13 +53,21 @@ async function verifyLinearWebhook(
 // Process different types of Linear webhook events
 async function processLinearWebhook(context: LinearWebhookContext) {
   const { type, payload } = context;
+  const log = createWebhookLogger(
+    type,
+    context.headers.webhookId,
+    payload.organizationId
+  );
 
-  console.log(`Processing Linear webhook: ${type}`, {
-    action: payload.action,
-    issueId: payload.data.id,
-    issueTitle: payload.data.title,
-    organizationId: payload.organizationId,
-  });
+  log.info(
+    {
+      action: payload.action,
+      issueId: payload.data.id,
+      issueTitle: payload.data.title,
+      organizationId: payload.organizationId,
+    },
+    `Processing Linear webhook: ${type}`
+  );
 
   switch (type) {
     case 'issue':
@@ -64,7 +77,7 @@ async function processLinearWebhook(context: LinearWebhookContext) {
     case 'project':
       return processProjectWebhook(payload);
     default:
-      console.log(`Unknown webhook type: ${type}`);
+      log.warn({ unknownType: type }, `Unknown webhook type: ${type}`);
       return { success: true, message: `Received ${type} webhook` };
   }
 }
@@ -75,8 +88,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ type: string }> }
 ): Promise<NextResponse> {
+  let type = 'unknown';
   try {
-    const { type } = await params;
+    ({ type } = await params);
     const body = await request.text();
 
     // Get headers for signature verification and logging
@@ -84,13 +98,15 @@ export async function POST(
     const webhookId = request.headers.get('linear-webhook-id') || '';
     const timestamp = request.headers.get('linear-timestamp') || '';
 
+    const log = createWebhookLogger(type, webhookId);
+
     // Verify webhook signature if secret is configured
     const webhookSecret = process.env.LINEAR_WEBHOOK_SECRET || '';
 
     if (webhookSecret) {
       const isValid = await verifyLinearWebhook(body, signature, webhookSecret);
       if (!isValid) {
-        console.error('Invalid webhook signature');
+        log.error({ webhookId, timestamp }, 'Invalid webhook signature');
         return NextResponse.json(
           { error: 'Invalid signature' },
           { status: 401 }
@@ -103,7 +119,14 @@ export async function POST(
     try {
       payload = JSON.parse(body);
     } catch (error) {
-      console.error('Invalid JSON payload:', error);
+      log.error(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          webhookId,
+          timestamp,
+        },
+        'Invalid JSON payload'
+      );
       return NextResponse.json(
         { error: 'Invalid JSON payload' },
         { status: 400 }
@@ -125,7 +148,15 @@ export async function POST(
     const result = await processLinearWebhook(context);
 
     // Log successful processing
-    console.log(`Successfully processed ${type} webhook:`, result);
+    log.info(
+      {
+        result,
+        webhookId,
+        timestamp,
+        processingTime: Date.now() - parseInt(timestamp || '0'),
+      },
+      `Successfully processed ${type} webhook`
+    );
 
     return NextResponse.json({
       success: true,
@@ -134,7 +165,14 @@ export async function POST(
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Error processing Linear webhook:', error);
+    const errorLog = createWebhookLogger(type || 'unknown');
+    errorLog.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      'Error processing Linear webhook'
+    );
 
     return NextResponse.json(
       {

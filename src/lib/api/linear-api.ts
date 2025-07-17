@@ -1,4 +1,5 @@
 import { LinearIssueState, LinearIssue } from '../types/linear-webhook';
+import { createApiLogger } from '../logger';
 
 interface GraphQLIssueResponse {
   id: string;
@@ -49,11 +50,12 @@ interface GraphQLLabelResponse {
 class LinearAPI {
   private apiKey: string;
   private baseUrl = 'https://api.linear.app/graphql';
+  private log = createApiLogger('linear');
 
   constructor() {
     this.apiKey = process.env.LINEAR_API_KEY || '';
     if (!this.apiKey) {
-      console.warn('LINEAR_API_KEY not configured');
+      this.log.warn('LINEAR_API_KEY not configured');
     }
   }
 
@@ -79,9 +81,14 @@ class LinearAPI {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(
-        `Linear API request failed: ${response.status} ${response.statusText}`,
-        errorText
+      this.log.error(
+        {
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+          query: query.substring(0, 100), // Log first 100 chars of query
+        },
+        'Linear API request failed'
       );
       throw new Error(errorText);
     }
@@ -112,7 +119,13 @@ class LinearAPI {
       const data = await this.graphqlRequest(query, { id: stateId });
       return data.workflowState;
     } catch (error) {
-      console.error(`Error fetching state ${stateId}:`, error);
+      this.log.error(
+        {
+          stateId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching state ${stateId}`
+      );
       return null;
     }
   }
@@ -192,7 +205,13 @@ class LinearAPI {
         updatedAt: issue.updatedAt,
       }));
     } catch (error) {
-      console.error(`Error fetching issues for label ${labelId}:`, error);
+      this.log.error(
+        {
+          labelId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching issues for label ${labelId}`
+      );
       return [];
     }
   }
@@ -273,9 +292,12 @@ class LinearAPI {
         updatedAt: issue.updatedAt,
       }));
     } catch (error) {
-      console.error(
-        `Error fetching issues for parent label ${parentLabelId}:`,
-        error
+      this.log.error(
+        {
+          parentLabelId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching issues for parent label ${parentLabelId}`
       );
       return [];
     }

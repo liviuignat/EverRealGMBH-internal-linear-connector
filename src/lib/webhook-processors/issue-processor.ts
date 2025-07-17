@@ -1,27 +1,42 @@
 import { LinearWebhookPayload } from '../types/linear-webhook';
 import { linearApi } from '../api/linear-api';
 import { processStatusReleaseChange } from './release-processor';
+import { createLogger } from '../logger';
 
 const STORY_LABEL_PARENT_ID = '037a6e45-7430-42bc-b6e9-c3a083514ead';
 
 export async function processIssueWebhook(payload: LinearWebhookPayload) {
   const { action, data } = payload;
-
-  console.log(`Processing issue webhook: ${action}`, {
+  const log = createLogger('issue-processor', {
     issueId: data.id,
-    title: data.title,
-    currentStateId: data.state?.id,
-    updatedFromStateId: payload.updatedFrom?.stateId,
+    action,
+    organizationId: payload.organizationId,
   });
+
+  log.info(
+    {
+      issueId: data.id,
+      title: data.title,
+      currentStateId: data.state?.id,
+      updatedFromStateId: payload.updatedFrom?.stateId,
+    },
+    `Processing issue webhook: ${action}`
+  );
 
   switch (action) {
     case 'create':
-      console.log(`New issue created: ${data.title} (${data.id})`);
+      log.info(
+        { issueTitle: data.title },
+        `New issue created: ${data.title} (${data.id})`
+      );
       // Add your issue creation logic here
       break;
 
     case 'update':
-      console.log(`Issue updated: ${data.title} (${data.id})`);
+      log.info(
+        { issueTitle: data.title },
+        `Issue updated: ${data.title} (${data.id})`
+      );
 
       // Check if this is a state change and has the story label
       await handleStateChangeForRelease(payload);
@@ -30,12 +45,12 @@ export async function processIssueWebhook(payload: LinearWebhookPayload) {
       break;
 
     case 'remove':
-      console.log(`Issue removed: ${data.id}`);
+      log.info(`Issue removed: ${data.id}`);
       // Add your issue removal logic here
       break;
 
     default:
-      console.log(`Unknown issue action: ${action}`);
+      log.warn({ unknownAction: action }, `Unknown issue action: ${action}`);
   }
 
   return { success: true, action, issueId: data.id };
@@ -43,6 +58,7 @@ export async function processIssueWebhook(payload: LinearWebhookPayload) {
 
 async function handleStateChangeForRelease(payload: LinearWebhookPayload) {
   const { data, updatedFrom } = payload;
+  const log = createLogger('issue-state-handler', { issueId: data.id });
 
   // Check if state actually changed
   const currentStateId = data.state?.id;
@@ -53,7 +69,13 @@ async function handleStateChangeForRelease(payload: LinearWebhookPayload) {
     !previousStateId ||
     currentStateId === previousStateId
   ) {
-    console.log('No state change detected, skipping release processing');
+    log.debug(
+      {
+        currentStateId,
+        previousStateId,
+      },
+      'No state change detected, skipping release processing'
+    );
     return;
   }
 
@@ -63,11 +85,26 @@ async function handleStateChangeForRelease(payload: LinearWebhookPayload) {
   );
 
   if (!hasStoryLabel) {
-    console.log('Issue does not have story label, skipping release processing');
+    log.debug(
+      {
+        labels: data.labels?.map((l) => ({
+          id: l.id,
+          name: l.name,
+          parentId: l.parentId,
+        })),
+        storyLabelParentId: STORY_LABEL_PARENT_ID,
+      },
+      'Issue does not have story label, skipping release processing'
+    );
     return;
   }
 
-  console.log(
+  log.info(
+    {
+      currentStateId,
+      previousStateId,
+      issueTitle: data.title,
+    },
     'State change detected for story ticket, processing release change...'
   );
 
@@ -76,12 +113,17 @@ async function handleStateChangeForRelease(payload: LinearWebhookPayload) {
     const previousState = await linearApi.getIssueState(previousStateId);
     const currentState = await linearApi.getIssueState(currentStateId);
 
-    console.log('State transition:', {
-      from: previousState?.name,
-      to: currentState?.name,
-      issueId: data.id,
-      issueTitle: data.title,
-    });
+    log.info(
+      {
+        from: previousState?.name,
+        to: currentState?.name,
+        issueId: data.id,
+        issueTitle: data.title,
+        previousStateId,
+        currentStateId,
+      },
+      'State transition'
+    );
 
     // Find the story label to get its name for the release document
     const storyLabel = data.labels?.find(
@@ -100,6 +142,16 @@ async function handleStateChangeForRelease(payload: LinearWebhookPayload) {
       });
     }
   } catch (error) {
-    console.error('Error processing release change:', error);
+    log.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        issueId: data.id,
+        issueTitle: data.title,
+        currentStateId,
+        previousStateId,
+      },
+      'Error processing release change'
+    );
   }
 }

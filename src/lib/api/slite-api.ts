@@ -1,8 +1,10 @@
+import { createApiLogger } from '../logger';
+
 interface SliteDocument {
   id: string;
   title: string;
   content: string;
-  status?: string;
+  release_status?: string;
   release_at?: string;
   created_at: string;
   updated_at: string;
@@ -32,11 +34,12 @@ class SliteAPI {
   private apiKey: string;
   private baseUrl = 'https://api.slite.com/v1';
   private collectionId = 'Bg5eYBZU2CgDoY';
+  private log = createApiLogger('slite');
 
   constructor() {
     this.apiKey = process.env.SLITE_API_KEY || '';
     if (!this.apiKey) {
-      console.warn('SLITE_API_KEY not configured');
+      this.log.warn('SLITE_API_KEY not configured');
     }
   }
 
@@ -73,7 +76,13 @@ class SliteAPI {
       );
       return data;
     } catch (error) {
-      console.error('Error fetching documents from Slite collection:', error);
+      this.log.error(
+        {
+          collectionId: this.collectionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error fetching documents from Slite collection'
+      );
       return {
         nextCursor: null,
         hasNextPage: false,
@@ -105,7 +114,14 @@ class SliteAPI {
         ...this.parseDocumentMetadata(fullDoc.content || ''),
       };
     } catch (error) {
-      console.error(`Error fetching document "${title}" from Slite:`, error);
+      this.log.error(
+        {
+          title,
+          collectionId: this.collectionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching document "${title}" from Slite`
+      );
       return null;
     }
   }
@@ -153,7 +169,14 @@ class SliteAPI {
         ...this.parseDocumentMetadata(content),
       };
     } catch (error) {
-      console.error('Error creating document in Slite:', error);
+      this.log.error(
+        {
+          title,
+          collectionId: this.collectionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error creating document in Slite'
+      );
       return null;
     }
   }
@@ -179,7 +202,13 @@ class SliteAPI {
         ...this.parseDocumentMetadata(content),
       };
     } catch (error) {
-      console.error('Error updating document in Slite:', error);
+      this.log.error(
+        {
+          documentId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error updating document in Slite'
+      );
       return null;
     }
   }
