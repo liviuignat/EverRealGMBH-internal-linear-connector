@@ -51,6 +51,15 @@ export async function processStatusReleaseChange(
       const existingReleaseDate =
         existingDocument.release_at || releaseDateString;
 
+      if (existingStatus !== 'not_released') {
+        console.log(`Existing status is not "not_released", skipping update`);
+        return {
+          success: true,
+          action: 'skipped',
+          documentId: existingDocument.id,
+          labelName,
+        };
+      }
       // If status is not_released, keep the existing release date
       const finalReleaseDate =
         existingStatus === 'not_released'
