@@ -160,9 +160,11 @@ async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
   // Check if issue meets status or label criteria
   const isQATesting = data.state?.name?.toLowerCase() === 'qa testing';
   const isDone = data.state?.name?.toLowerCase() === 'done';
-  const isFlagged = data.labels?.some((label) => label.name === '🔴 FLAGGED');
+  const isFlaggedWithLabel = data.labels?.some(
+    (label) => label.name === '🔴 FLAGGED'
+  );
 
-  if (!isQATesting && !isDone && !isFlagged) {
+  if (!isQATesting && !isDone && !isFlaggedWithLabel) {
     log.debug(
       {
         issueId: data.id,
@@ -221,7 +223,7 @@ async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
         currentState: data.state?.name,
         isQATesting,
         isDone,
-        isFlagged,
+        isFlagged: isFlaggedWithLabel,
         cycleName: cycle.name,
         cycleId: cycle.id,
       },
@@ -231,7 +233,7 @@ async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
     let triggerReason = null;
     if (isQATesting) triggerReason = 'QA Testing';
     else if (isDone) triggerReason = 'Done';
-    else if (isFlagged) triggerReason = '🔴 FLAGGED';
+    else if (isFlaggedWithLabel) triggerReason = '🔴 FLAGGED';
 
     if (triggerReason) {
       log.info(
