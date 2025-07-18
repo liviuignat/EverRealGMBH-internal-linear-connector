@@ -27,6 +27,10 @@ export interface LinearWebhookPayload {
       id: string;
       name: string;
     };
+    cycle?: {
+      id: string;
+      name?: string;
+    };
     priority?: number;
     labels?: Array<{
       id: string;

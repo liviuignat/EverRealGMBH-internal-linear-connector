@@ -74,6 +74,200 @@ async function sendFiremanValidationSlackNotification(
   }
 }
 
+// Slack notification for cycle status updates
+async function sendCycleStatusSlackNotification(
+  issueNumber: string,
+  issueUrl: string,
+  issueTitle: string,
+  issueId: string,
+  statusOrLabel: string,
+  cycleName: string
+) {
+  const slackWebhookUrl =
+    'https://hooks.slack.com/services/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';
+
+  if (!slackWebhookUrl) {
+    const log = createLogger('slack-cycle-notification');
+    log.warn(
+      'SLACK_CYCLE_STATUS_WEBHOOK_URL not configured, skipping Slack notification'
+    );
+    return;
+  }
+
+  const log = createLogger('slack-cycle-notification', { issueId });
+
+  try {
+    let message;
+    if (statusOrLabel === '🔴 FLAGGED') {
+      message = {
+        text: `🚩 Issue flagged in active cycle "${cycleName}": <${issueUrl}|${issueNumber} ${issueTitle}>`,
+      };
+    } else {
+      message = {
+        text: `✅ Issue moved to "${statusOrLabel}" in active cycle "${cycleName}": <${issueUrl}|${issueNumber} ${issueTitle}>`,
+      };
+    }
+
+    const response = await fetch(slackWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    });
+
+    if (response.ok) {
+      log.info(
+        {
+          issueNumber,
+          issueId,
+          issueTitle,
+          issueUrl,
+          statusOrLabel,
+          cycleName,
+        },
+        'Successfully sent cycle status Slack notification'
+      );
+    } else {
+      const errorText = await response.text();
+      log.error(
+        {
+          issueId,
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+        },
+        'Failed to send cycle status Slack notification'
+      );
+    }
+  } catch (error) {
+    log.error(
+      {
+        issueId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      'Error sending cycle status Slack notification'
+    );
+  }
+}
+
+// Check if issue is in active cycle and meets status criteria
+async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
+  const { data } = payload;
+  const log = createLogger('cycle-status-check', { issueId: data.id });
+
+  // Check if issue meets status or label criteria
+  const isQATesting = data.state?.name?.toLowerCase() === 'qa testing';
+  const isDone = data.state?.name?.toLowerCase() === 'done';
+  const isFlagged = data.labels?.some((label) => label.name === '🔴 FLAGGED');
+
+  if (!isQATesting && !isDone && !isFlagged) {
+    log.debug(
+      {
+        issueId: data.id,
+      },
+      'Issue does not meet cycle status criteria, skipping cycle status check'
+    );
+    return;
+  }
+
+  // Check if issue has cycle information
+  if (!data.cycle?.id) {
+    log.debug(
+      {
+        issueId: data.id,
+        hasCycle: false,
+      },
+      'Issue not assigned to any cycle, skipping cycle status check'
+    );
+    return;
+  }
+
+  try {
+    // Fetch cycle details to check if it's active
+    const cycle = await linearApi.getCycleDetails(data.cycle.id);
+
+    if (!cycle) {
+      log.debug(
+        {
+          issueId: data.id,
+          cycleId: data.cycle.id,
+        },
+        'Could not fetch cycle details'
+      );
+      return;
+    }
+
+    // Check if cycle is active (not completed)
+    const isActiveCycle = !cycle.completedAt;
+
+    if (!isActiveCycle) {
+      log.debug(
+        {
+          issueId: data.id,
+          cycleId: cycle.id,
+          cycleName: cycle.name,
+          completedAt: cycle.completedAt,
+        },
+        'Issue is in completed cycle, skipping notification'
+      );
+      return;
+    }
+
+    log.debug(
+      {
+        issueId: data.id,
+        currentState: data.state?.name,
+        isQATesting,
+        isDone,
+        isFlagged,
+        cycleName: cycle.name,
+        cycleId: cycle.id,
+      },
+      'Checking cycle status criteria'
+    );
+
+    let triggerReason = null;
+    if (isQATesting) triggerReason = 'QA Testing';
+    else if (isDone) triggerReason = 'Done';
+    else if (isFlagged) triggerReason = '🔴 FLAGGED';
+
+    if (triggerReason) {
+      log.info(
+        {
+          issueId: data.id,
+          issueTitle: data.title,
+          reason: triggerReason,
+          cycleName: cycle.name,
+          cycleId: cycle.id,
+        },
+        'Issue meets cycle status criteria, sending Slack notification'
+      );
+
+      // Send Slack notification
+      const issueUrl = data.url || `https://linear.app/issue/${data.id}`;
+      await sendCycleStatusSlackNotification(
+        data.identifier?.toString() || 'N/A',
+        issueUrl,
+        data.title || 'Untitled Issue',
+        data.id,
+        triggerReason,
+        cycle.name
+      );
+    }
+  } catch (error) {
+    log.error(
+      {
+        issueId: data.id,
+        cycleId: data.cycle?.id,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Error checking cycle status criteria'
+    );
+  }
+}
+
 // Check if issue meets Fireman Validation criteria
 async function checkFiremanValidationCriteria(payload: LinearWebhookPayload) {
   const { data } = payload;
@@ -158,6 +352,9 @@ export async function processIssueWebhook(payload: LinearWebhookPayload) {
 
       // Check for Fireman Validation criteria
       await checkFiremanValidationCriteria(payload);
+
+      // Check for cycle status criteria (QA Testing, Done, or Flagged)
+      await checkCycleStatusCriteria(payload);
 
       // Check if this is a state change and has the story label
       await handleStateChangeForRelease(payload);
