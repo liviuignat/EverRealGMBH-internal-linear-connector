@@ -154,22 +154,172 @@ async function sendCycleStatusSlackNotification(
 
 // Check if issue is in active cycle and meets status criteria
 async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
-  const { data } = payload;
+  const { data, updatedFrom, action } = payload;
   const log = createLogger('cycle-status-check', { issueId: data.id });
 
-  // Check if issue meets status or label criteria
-  const isQATesting = data.state?.name?.toLowerCase() === 'qa testing';
-  const isDone = data.state?.name?.toLowerCase() === 'done';
-  const isFlaggedWithLabel = data.labels?.some(
-    (label) => label.name === '🔴 FLAGGED'
-  );
-
-  if (!isQATesting && !isDone && !isFlaggedWithLabel) {
+  // Only process notifications for "Engineering - PRODUCT" team
+  const teamName = data.team?.name;
+  if (teamName !== 'Engineering - PRODUCT') {
     log.debug(
       {
         issueId: data.id,
+        teamName,
+        teamId: data.team?.id,
       },
-      'Issue does not meet cycle status criteria, skipping cycle status check'
+      'Issue not in Engineering - PRODUCT team, skipping cycle status check'
+    );
+    return;
+  }
+
+  log.debug(
+    {
+      issueId: data.id,
+      teamName,
+      teamId: data.team?.id,
+    },
+    'Issue belongs to Engineering - PRODUCT team, proceeding with cycle status check'
+  );
+
+  // Check current status and labels
+  const currentStateId = data.state?.id;
+  const previousStateId = updatedFrom?.stateId;
+  const currentStateName = data.state?.name?.toLowerCase();
+  const currentLabels = data.labels?.map((label) => label.name) || [];
+
+  // Check for newly added 🔴 FLAGGED label
+  const isFlaggedWithLabel = currentLabels.includes('🔴 FLAGGED');
+
+  // Check current status
+  const isQATesting = currentStateName === 'qa testing';
+  const isDone = currentStateName === 'done';
+  const hasStatusChanged = currentStateId !== previousStateId;
+
+  let hasRelevantChange = false;
+  let changeReason = '';
+
+  // ALWAYS post message if flag label is applied
+  if (isFlaggedWithLabel) {
+    hasRelevantChange = true;
+    changeReason = '🔴 FLAGGED';
+
+    log.debug(
+      {
+        issueId: data.id,
+        currentLabels,
+      },
+      'Issue has 🔴 FLAGGED label - always posting notification'
+    );
+  }
+  // ONLY post status notifications if status ACTUALLY changed TO "QA Testing" or "Done"
+  else if (hasStatusChanged && previousStateId && (isQATesting || isDone)) {
+    // Only trigger if status actually changed TO these target states
+    try {
+      const previousState = await linearApi.getIssueState(previousStateId);
+      const previousStateName = previousState?.name?.toLowerCase();
+
+      // Only trigger if we moved FROM a different state TO our target state
+      if (
+        isQATesting &&
+        previousStateName &&
+        previousStateName !== 'qa testing'
+      ) {
+        hasRelevantChange = true;
+        changeReason = 'QA Testing';
+        log.info(
+          {
+            issueId: data.id,
+            previousState: previousStateName,
+            currentState: currentStateName,
+            previousStateId,
+            currentStateId,
+          },
+          'Status actually changed FROM different state TO QA Testing'
+        );
+      } else if (isDone && previousStateName && previousStateName !== 'done') {
+        hasRelevantChange = true;
+        changeReason = 'Done';
+        log.info(
+          {
+            issueId: data.id,
+            previousState: previousStateName,
+            currentState: currentStateName,
+            previousStateId,
+            currentStateId,
+          },
+          'Status actually changed FROM different state TO Done'
+        );
+      } else {
+        log.debug(
+          {
+            issueId: data.id,
+            previousState: previousStateName,
+            currentState: currentStateName,
+            hasStatusChanged,
+            wasAlreadyInTargetState:
+              (isQATesting && previousStateName === 'qa testing') ||
+              (isDone && previousStateName === 'done'),
+          },
+          'Status change detected but not a transition TO target state - likely label/other field change'
+        );
+      }
+    } catch (error) {
+      log.error(
+        {
+          issueId: data.id,
+          previousStateId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error fetching previous state for comparison'
+      );
+    }
+  } else if (
+    !previousStateId &&
+    (isQATesting || isDone) &&
+    action === 'create'
+  ) {
+    // Handle ONLY new issues created directly in target states (not updates with missing previousStateId)
+    hasRelevantChange = true;
+    changeReason = isQATesting ? 'QA Testing' : 'Done';
+    log.debug(
+      {
+        issueId: data.id,
+        currentState: currentStateName,
+        noPreviousState: true,
+        action,
+      },
+      `New issue created directly in ${changeReason} status`
+    );
+  } else if (
+    !previousStateId &&
+    (isQATesting || isDone) &&
+    action === 'update'
+  ) {
+    // This is an update where Linear didn't provide previousStateId (likely label/other field change)
+    log.debug(
+      {
+        issueId: data.id,
+        currentState: currentStateName,
+        noPreviousState: true,
+        action,
+        reason: 'likely_label_or_field_change',
+      },
+      `Update action with no previousStateId - likely label/field change, not status change`
+    );
+  }
+
+  if (!hasRelevantChange) {
+    log.debug(
+      {
+        issueId: data.id,
+        currentState: currentStateName,
+        hasStatusChanged,
+        isQATesting,
+        isDone,
+        isFlagged: isFlaggedWithLabel,
+        previousStateId,
+        currentStateId,
+      },
+      'No relevant status change detected, skipping cycle status check'
     );
     return;
   }
@@ -221,43 +371,43 @@ async function checkCycleStatusCriteria(payload: LinearWebhookPayload) {
       {
         issueId: data.id,
         currentState: data.state?.name,
+        previousStateId,
+        hasStatusChanged,
+        hasRelevantChange,
+        changeReason,
         isQATesting,
         isDone,
         isFlagged: isFlaggedWithLabel,
         cycleName: cycle.name,
         cycleId: cycle.id,
       },
-      'Checking cycle status criteria'
+      'Checking cycle status criteria with change detection'
     );
 
-    let triggerReason = null;
-    if (isQATesting) triggerReason = 'QA Testing';
-    else if (isDone) triggerReason = 'Done';
-    else if (isFlaggedWithLabel) triggerReason = '🔴 FLAGGED';
+    // We already determined the change reason, so use it directly
+    log.info(
+      {
+        issueId: data.id,
+        issueTitle: data.title,
+        changeReason,
+        cycleName: cycle.name,
+        cycleId: cycle.id,
+        previousStateId,
+        currentStateId,
+      },
+      'Issue status changed in active cycle, sending Slack notification'
+    );
 
-    if (triggerReason) {
-      log.info(
-        {
-          issueId: data.id,
-          issueTitle: data.title,
-          reason: triggerReason,
-          cycleName: cycle.name,
-          cycleId: cycle.id,
-        },
-        'Issue meets cycle status criteria, sending Slack notification'
-      );
-
-      // Send Slack notification
-      const issueUrl = data.url || `https://linear.app/issue/${data.id}`;
-      await sendCycleStatusSlackNotification(
-        data.identifier?.toString() || 'N/A',
-        issueUrl,
-        data.title || 'Untitled Issue',
-        data.id,
-        triggerReason,
-        cycle.name
-      );
-    }
+    // Send Slack notification
+    const issueUrl = data.url || `https://linear.app/issue/${data.id}`;
+    await sendCycleStatusSlackNotification(
+      data.identifier?.toString() || 'N/A',
+      issueUrl,
+      data.title || 'Untitled Issue',
+      data.id,
+      changeReason,
+      cycle.name
+    );
   } catch (error) {
     log.error(
       {

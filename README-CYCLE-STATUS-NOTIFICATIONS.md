@@ -11,14 +11,21 @@ The issue processor automatically sends Slack notifications when issues in activ
 Slack notifications are sent when **all** of the following conditions are met:
 
 1. **Active Cycle**: Issue is assigned to an active (not completed) cycle
-2. **Status/Label Criteria**: Issue meets one of these conditions:
-   - Moved to "QA Testing" status
-   - Moved to "Done" status
-   - Tagged with "🔴 FLAGGED" label
+2. **Actual Change Detection**: Issue has a relevant change:
+   - **Status Change**: Moved TO "QA Testing" or "Done" (from a different status)
+   - **Label Addition**: Has "🔴 FLAGGED" label (Note: cannot detect if newly added due to webhook limitations)
+
+### Change Detection Logic
+
+The system intelligently detects actual changes to prevent duplicate notifications:
+
+- **Status Changes**: Compares previous state with current state using Linear API
+- **New Issues**: Issues created directly in "QA Testing" or "Done" trigger notifications
+- **Label Changes**: Currently triggers on any flagged issue (limitation noted below)
 
 ### Supported Actions
 
-The system monitors Linear webhook events for issue updates and checks for the above criteria.
+The system monitors Linear webhook events for issue updates and validates actual status transitions.
 
 ## Configuration
 
@@ -85,19 +92,37 @@ The system provides comprehensive logging for monitoring and debugging:
 }
 ```
 
-### Debug Logs
+### Debug Logs (Change Detection)
 ```json
 {
   "severity": "DEBUG",
   "module": "cycle-status-check",
   "issueId": "issue_123",
   "currentState": "QA Testing",
+  "previousStateId": "state_789",
+  "hasStatusChanged": true,
+  "hasRelevantChange": true,
+  "changeReason": "QA Testing",
   "isQATesting": true,
   "isDone": false,
   "isFlagged": false,
   "cycleName": "Sprint 24.1",
   "cycleId": "cycle_456",
-  "msg": "Checking cycle status criteria"
+  "msg": "Checking cycle status criteria with change detection"
+}
+```
+
+### No Change Detected Logs
+```json
+{
+  "severity": "DEBUG",
+  "module": "cycle-status-check",
+  "issueId": "issue_123",
+  "currentState": "qa testing",
+  "hasStatusChanged": false,
+  "previousStateId": "state_789",
+  "currentStateId": "state_789",
+  "msg": "No relevant status change detected, skipping cycle status check"
 }
 ```
 
@@ -131,10 +156,11 @@ The system provides comprehensive logging for monitoring and debugging:
 
 ### Key Components
 
-1. **Cycle Validation** (`checkCycleStatusCriteria`):
-   - Fetches cycle details from Linear API
+1. **Change Detection** (`checkCycleStatusCriteria`):
+   - Compares current vs previous state using webhook `updatedFrom` data
+   - Fetches previous state details from Linear API for accurate comparison
    - Validates cycle is active (not completed)
-   - Checks status and label criteria
+   - Detects actual status transitions to prevent duplicate notifications
 
 2. **Slack Notification** (`sendCycleStatusSlackNotification`):
    - Sends HTTP POST to Slack webhook
@@ -145,6 +171,20 @@ The system provides comprehensive logging for monitoring and debugging:
    - Called on issue `update` actions only
    - Runs independently of other processors
    - Non-blocking error handling
+
+### Change Detection Algorithm
+
+**Status Changes**:
+1. Extract current and previous state IDs from webhook
+2. If state changed and current is "QA Testing" or "Done":
+   - Fetch previous state details from Linear API
+   - Compare previous state name with current
+   - Trigger only if actually moved TO target status
+
+**Label Detection**:
+- Currently triggers on any issue with "🔴 FLAGGED" label
+- **Limitation**: Cannot detect if label was newly added vs already existed
+- **Future Enhancement**: Store previous label state or fetch from Linear API
 
 ### Linear API Integration
 
