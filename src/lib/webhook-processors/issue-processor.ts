@@ -13,7 +13,7 @@ async function sendFiremanValidationSlackNotification(
   issueId: string
 ) {
   const slackWebhookUrl =
-    'https://hooks.slack.com/services/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';
+    'https://hooks.slack.com/services/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';
 
   if (!slackWebhookUrl) {
     const log = createLogger('slack-notification');
@@ -84,7 +84,7 @@ async function sendCycleStatusSlackNotification(
   cycleName: string
 ) {
   const slackWebhookUrl =
-    'https://hooks.slack.com/services/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';
+    'https://hooks.slack.com/services/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';
 
   if (!slackWebhookUrl) {
     const log = createLogger('slack-cycle-notification');
