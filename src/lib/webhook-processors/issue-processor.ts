@@ -12,7 +12,8 @@ async function sendFiremanValidationSlackNotification(
   issueTitle: string,
   issueId: string
 ) {
-  const slackWebhookUrl = process.env.SLACK_FIREMAN_WEBHOOK_URL;
+  const slackWebhookUrl =
+    'https://hooks.slack.com/services/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';
 
   if (!slackWebhookUrl) {
     const log = createLogger('slack-notification');
