@@ -6,6 +6,7 @@ import {
 import { processIssueWebhook } from '@/lib/webhook-processors/issue-processor';
 import { processCommentWebhook } from '@/lib/webhook-processors/comment-processor';
 import { processProjectWebhook } from '@/lib/webhook-processors/project-processor';
+import { processCycleWebhook } from '@/lib/webhook-processors/cycle-processor';
 import { createWebhookLogger } from '@/lib/logger';
 
 // Webhook signature verification
@@ -59,6 +60,8 @@ async function processLinearWebhook(context: LinearWebhookContext) {
     payload.organizationId
   );
 
+  console.log('--->payload', type, payload);
+
   log.info(
     {
       action: payload.action,
@@ -69,13 +72,15 @@ async function processLinearWebhook(context: LinearWebhookContext) {
     `Processing Linear webhook: ${type}`
   );
 
-  switch (type) {
-    case 'issue':
+  switch (payload.type) {
+    case 'Issue':
       return await processIssueWebhook(payload);
-    case 'comment':
+    case 'Comment':
       return processCommentWebhook(payload);
-    case 'project':
+    case 'Project':
       return processProjectWebhook(payload);
+    case 'Cycle':
+      return await processCycleWebhook(payload);
     default:
       log.warn({ unknownType: type }, `Unknown webhook type: ${type}`);
       return { success: true, message: `Received ${type} webhook` };

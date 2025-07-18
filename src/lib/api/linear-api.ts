@@ -302,6 +302,135 @@ class LinearAPI {
       return [];
     }
   }
+  async getIssuesByCycle(cycleId: string): Promise<LinearIssue[]> {
+    const query = `
+      query GetIssuesByCycle($cycleId: ID!, $first: Int) {
+        issues(
+          filter: {
+            cycle: { id: { eq: $cycleId } }
+          }
+          first: $first
+        ) {
+          nodes {
+            id
+            title
+            description
+            url
+            identifier
+            estimate
+            state {
+              id
+              name
+              type
+              color
+              position
+            }
+            assignee {
+              id
+              name
+              email
+            }
+            labels {
+              nodes {
+                id
+                name
+                color
+                parent {
+                  id
+                }
+              }
+            }
+            team {
+              id
+              name
+            }
+            createdAt
+            updatedAt
+          }
+        }
+      }
+    `;
+
+    try {
+      const data = await this.graphqlRequest(query, {
+        cycleId,
+        first: 100,
+      });
+
+      return data.issues.nodes.map((issue: GraphQLIssueResponse) => ({
+        id: issue.id,
+        title: issue.title,
+        description: issue.description,
+        url: issue.url,
+        identifier: issue.identifier,
+        estimate: issue.estimate,
+        state: issue.state,
+        assignee: issue.assignee,
+        labels: issue.labels.nodes.map((label: GraphQLLabelResponse) => ({
+          id: label.id,
+          name: label.name,
+          color: label.color,
+          parentId: label.parent?.id,
+        })),
+        team: issue.team,
+        createdAt: issue.createdAt,
+        updatedAt: issue.updatedAt,
+      }));
+    } catch (error) {
+      this.log.error(
+        {
+          cycleId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching issues for cycle ${cycleId}`
+      );
+      return [];
+    }
+  }
+
+  async getIssueComments(issueId: string): Promise<
+    Array<{
+      id: string;
+      body: string;
+      user: { name: string };
+      createdAt: string;
+    }>
+  > {
+    const query = `
+      query GetIssueComments($issueId: String!, $first: Int) {
+        issue(id: $issueId) {
+          comments(first: $first) {
+            nodes {
+              id
+              body
+              user {
+                name
+              }
+              createdAt
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const data = await this.graphqlRequest(query, {
+        issueId,
+        first: 50,
+      });
+
+      return data.issue?.comments?.nodes || [];
+    } catch (error) {
+      this.log.error(
+        {
+          issueId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching comments for issue ${issueId}`
+      );
+      return [];
+    }
+  }
 }
 
 export const linearApi = new LinearAPI();

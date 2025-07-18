@@ -34,7 +34,7 @@ export interface LinearWebhookPayload {
     createdAt: string;
     updatedAt: string;
   };
-  type: string;
+  type: 'Cycle' | 'Issue' | 'Project' | 'Comment';
   organizationId: string;
   webhookTimestamp: number;
   webhookId: string;
