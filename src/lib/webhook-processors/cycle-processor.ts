@@ -67,9 +67,8 @@ export async function processCycleWebhook(payload: LinearWebhookPayload) {
 
   // Only process when cycle is completed/closed
   const cycleData = data as unknown as CycleData;
-  // if (action === 'update' && cycleData.completedAt) {
-  console.log('---> cycleData', action === 'update', cycleData.completedAt);
-  if (action === 'update') {
+
+  if (action === 'update' && cycleData.completedAt) {
     log.info(
       {
         cycleId: cycleData.id,

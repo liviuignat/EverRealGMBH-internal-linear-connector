@@ -60,8 +60,6 @@ async function processLinearWebhook(context: LinearWebhookContext) {
     payload.organizationId
   );
 
-  console.log('--->payload', type, payload);
-
   log.info(
     {
       action: payload.action,
