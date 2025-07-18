@@ -431,6 +431,40 @@ class LinearAPI {
       return [];
     }
   }
+
+  async getCycleDetails(cycleId: string): Promise<{
+    id: string;
+    name: string;
+    completedAt?: string;
+    startsAt?: string;
+    endsAt?: string;
+  } | null> {
+    const query = `
+      query GetCycleDetails($cycleId: String!) {
+        cycle(id: $cycleId) {
+          id
+          name
+          completedAt
+          startsAt
+          endsAt
+        }
+      }
+    `;
+
+    try {
+      const data = await this.graphqlRequest(query, { cycleId });
+      return data.cycle;
+    } catch (error) {
+      this.log.error(
+        {
+          cycleId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching cycle details for ${cycleId}`
+      );
+      return null;
+    }
+  }
 }
 
 export const linearApi = new LinearAPI();

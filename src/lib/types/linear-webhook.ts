@@ -6,6 +6,9 @@ export interface LinearWebhookPayload {
     title?: string;
     description?: string;
     estimate?: number; // Story points
+    number?: number;
+    identifier?: string;
+    url?: string;
     state?: {
       id: string;
       name: string;
@@ -23,6 +26,10 @@ export interface LinearWebhookPayload {
     project?: {
       id: string;
       name: string;
+    };
+    cycle?: {
+      id: string;
+      name?: string;
     };
     priority?: number;
     labels?: Array<{
