@@ -12,10 +12,10 @@ async function sendFiremanValidationSlackNotification(
   issueTitle: string,
   issueId: string
 ) {
-  const slackWebhookUrl =
+  const slackWebhookFiremanUrl =
     'https://hooks.slack.com/services/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';
 
-  if (!slackWebhookUrl) {
+  if (!slackWebhookFiremanUrl) {
     const log = createLogger('slack-notification');
     log.warn(
       'SLACK_FIREMAN_WEBHOOK_URL not configured, skipping Slack notification'
@@ -32,7 +32,7 @@ async function sendFiremanValidationSlackNotification(
         `<${issueUrl}|${issueNumber} ${issueTitle}>`,
     };
 
-    const response = await fetch(slackWebhookUrl, {
+    const response = await fetch(slackWebhookFiremanUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
