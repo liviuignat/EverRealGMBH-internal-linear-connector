@@ -5,6 +5,119 @@ import { createLogger } from '../logger';
 
 const STORY_LABEL_PARENT_ID = '037a6e45-7430-42bc-b6e9-c3a083514ead';
 
+// Slack notification for urgent fireman validation issues
+async function sendFiremanValidationSlackNotification(
+  issueNumber: string,
+  issueUrl: string,
+  issueTitle: string,
+  issueId: string
+) {
+  const slackWebhookUrl = process.env.SLACK_FIREMAN_WEBHOOK_URL;
+
+  if (!slackWebhookUrl) {
+    const log = createLogger('slack-notification');
+    log.warn(
+      'SLACK_FIREMAN_WEBHOOK_URL not configured, skipping Slack notification'
+    );
+    return;
+  }
+
+  const log = createLogger('slack-notification', { issueId });
+
+  try {
+    const message = {
+      text:
+        '🚨 An `URGENT` ticket was transitioned / updated inside `Fireman Validation` ' +
+        `<${issueUrl}|${issueNumber} ${issueTitle}>`,
+    };
+
+    const response = await fetch(slackWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    });
+
+    if (response.ok) {
+      log.info(
+        {
+          issueNumber,
+          issueId,
+          issueTitle,
+          issueUrl,
+        },
+        'Successfully sent Fireman Validation Slack notification'
+      );
+    } else {
+      const errorText = await response.text();
+      log.error(
+        {
+          issueId,
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+        },
+        'Failed to send Slack notification'
+      );
+    }
+  } catch (error) {
+    log.error(
+      {
+        issueId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+      'Error sending Slack notification'
+    );
+  }
+}
+
+// Check if issue meets Fireman Validation criteria
+async function checkFiremanValidationCriteria(payload: LinearWebhookPayload) {
+  const { data } = payload;
+  const log = createLogger('fireman-validation-check', { issueId: data.id });
+
+  // Check if status is "Fireman Validation" (case insensitive)
+  const isFiremanValidation =
+    data.state?.name?.toLowerCase() === 'fireman validation';
+
+  // Check if priority is "Urgent"
+  const isUrgent = data.priority === 1; // Linear priority: 1 = Urgent, 2 = High, 3 = Medium, 4 = Low
+
+  log.debug(
+    {
+      issueId: data.id,
+      currentState: data.state?.name,
+      priority: data.priority,
+      isFiremanValidation,
+      isUrgent,
+    },
+    'Checking Fireman Validation criteria'
+  );
+
+  if (isFiremanValidation && isUrgent) {
+    log.info(
+      {
+        issueId: data.id,
+        issueTitle: data.title,
+        state: data.state?.name,
+        priority: data.priority,
+      },
+      'Issue meets Fireman Validation criteria, sending Slack notification'
+    );
+
+    // Send Slack notification
+    const issueUrl = data.url || `https://linear.app/issue/${data.id}`;
+    await sendFiremanValidationSlackNotification(
+      data.identifier?.toString() || 'N/A',
+      issueUrl,
+      data.title || 'Untitled Issue',
+      data.id
+    );
+  }
+}
+
 export async function processIssueWebhook(payload: LinearWebhookPayload) {
   const { action, data } = payload;
   const log = createLogger('issue-processor', {
@@ -29,6 +142,10 @@ export async function processIssueWebhook(payload: LinearWebhookPayload) {
         { issueTitle: data.title },
         `New issue created: ${data.title} (${data.id})`
       );
+
+      // Check for Fireman Validation criteria
+      await checkFiremanValidationCriteria(payload);
+
       // Add your issue creation logic here
       break;
 
@@ -37,6 +154,9 @@ export async function processIssueWebhook(payload: LinearWebhookPayload) {
         { issueTitle: data.title },
         `Issue updated: ${data.title} (${data.id})`
       );
+
+      // Check for Fireman Validation criteria
+      await checkFiremanValidationCriteria(payload);
 
       // Check if this is a state change and has the story label
       await handleStateChangeForRelease(payload);

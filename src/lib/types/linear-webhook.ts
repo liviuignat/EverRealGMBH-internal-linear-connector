@@ -6,6 +6,9 @@ export interface LinearWebhookPayload {
     title?: string;
     description?: string;
     estimate?: number; // Story points
+    number?: number;
+    identifier?: string;
+    url?: string;
     state?: {
       id: string;
       name: string;
