@@ -33,7 +33,7 @@ interface SliteCollectionDocument {
 class SliteAPI {
   private apiKey: string;
   private baseUrl = 'https://api.slite.com/v1';
-  private collectionId = 'Bg5eYBZU2CgDoY';
+  private collectionId = process.env.SLITE_RELEASE_NOTES_COLLECTION_ID || '';
   private log = createApiLogger('slite');
 
   constructor() {
@@ -92,6 +92,46 @@ class SliteAPI {
     }
   }
 
+  async getDocumentByTitleInNode(
+    title: string,
+    nodeId: string
+  ): Promise<SliteDocument | null> {
+    try {
+      // Search in specific node/collection
+      const data = await this.apiRequest(`/notes/${nodeId}/children`);
+
+      // Find document with matching title
+      const document = data.notes?.find(
+        (doc: SliteCollectionDocument) => doc.title === title
+      );
+
+      if (!document) {
+        return null;
+      }
+
+      // Get full document content
+      const fullDoc = await this.apiRequest(`/notes/${document.id}`);
+      return {
+        id: document.id,
+        title: document.title,
+        content: fullDoc.content || '',
+        created_at: fullDoc.created_at || '',
+        updated_at: fullDoc.updated_at || '',
+        ...this.parseDocumentMetadata(fullDoc.content || ''),
+      };
+    } catch (error) {
+      this.log.error(
+        {
+          title,
+          nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error fetching document "${title}" from Slite node ${nodeId}`
+      );
+      return null;
+    }
+  }
+
   async getDocumentByTitle(title: string): Promise<SliteDocument | null> {
     try {
       const documents = await this.getDocumentsFromCollection();
@@ -144,6 +184,42 @@ class SliteAPI {
     }
 
     return metadata;
+  }
+
+  async createDocumentInNode(
+    title: string,
+    content: string,
+    nodeId: string
+  ): Promise<SliteDocument | null> {
+    try {
+      const response = await this.apiRequest('/notes', {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          markdown: content,
+          parentNoteId: nodeId,
+        }),
+      });
+
+      return {
+        id: response.id,
+        title: response.title,
+        content: response.content || content,
+        created_at: response.created_at,
+        updated_at: response.updated_at,
+        ...this.parseDocumentMetadata(content),
+      };
+    } catch (error) {
+      this.log.error(
+        {
+          title,
+          nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        `Error creating document "${title}" in Slite node ${nodeId}`
+      );
+      return null;
+    }
   }
 
   async createDocument(
