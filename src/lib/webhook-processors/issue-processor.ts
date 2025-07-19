@@ -12,8 +12,7 @@ async function sendFiremanValidationSlackNotification(
   issueTitle: string,
   issueId: string
 ) {
-  const slackWebhookFiremanUrl =
-    'https://hooks.slack.com/services/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';
+  const slackWebhookFiremanUrl = process.env.SLACK_WEBHOOK_FIREMAN_URL;
 
   if (!slackWebhookFiremanUrl) {
     const log = createLogger('slack-notification');
@@ -83,8 +82,7 @@ async function sendCycleStatusSlackNotification(
   statusOrLabel: string,
   cycleName: string
 ) {
-  const slackWebhookUrl =
-    'https://hooks.slack.com/services/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';
+  const slackWebhookUrl = process.env.SLACK_WEBHOOK_STATUS_CHANGE_URL_ISSUE;
 
   if (!slackWebhookUrl) {
     const log = createLogger('slack-cycle-notification');
