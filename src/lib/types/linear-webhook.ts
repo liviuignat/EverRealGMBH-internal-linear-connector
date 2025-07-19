@@ -50,6 +50,13 @@ export interface LinearWebhookPayload {
     updatedAt?: string;
     sortOrder?: number;
     startedAt?: string;
+    priority?: number;
+    assigneeId?: string;
+    cycleId?: string;
+    projectId?: string;
+    title?: string;
+    description?: string;
+    estimate?: number;
   };
 }
 
