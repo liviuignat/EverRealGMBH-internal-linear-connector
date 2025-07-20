@@ -3,7 +3,7 @@ import {
   LinearWebhookPayload,
   LinearWebhookContext,
 } from '@/lib/types/linear-webhook';
-import { processIssueWebhook } from '@/lib/webhook-processors/issue-processor';
+import { processIssueWebhook } from '@/lib/webhook-processors/issue';
 import { processCommentWebhook } from '@/lib/webhook-processors/comment-processor';
 import { processProjectWebhook } from '@/lib/webhook-processors/project-processor';
 import { processCycleWebhook } from '@/lib/webhook-processors/cycle-processor';
